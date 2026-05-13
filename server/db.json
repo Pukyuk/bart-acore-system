@@ -1,0 +1,193 @@
+{
+  "users": [
+    {
+      "id": 1,
+      "name": "Aldrin",
+      "email": "admin@bwsi.com",
+      "password": "admin123",
+      "role": "Admin",
+      "status": "Active"
+    },
+    {
+      "id": 2,
+      "name": "A-Core Encoder",
+      "email": "encoder@bwsi.com",
+      "password": "encoder123",
+      "role": "Encoder",
+      "status": "Active"
+    },
+    {
+      "id": 3,
+      "name": "A-Core Supervisor",
+      "email": "supervisor@bwsi.com",
+      "password": "supervisor123",
+      "role": "Supervisor",
+      "status": "Active"
+    },
+    {
+      "id": 4,
+      "name": "BART Viewer",
+      "email": "viewer@bwsi.com",
+      "password": "viewer123",
+      "role": "Viewer",
+      "status": "Active"
+    }
+  ],
+  "branches": [
+    {
+      "id": 1,
+      "branch": "Main Office",
+      "department": "Accounting",
+      "status": "Active"
+    },
+    {
+      "id": 2,
+      "branch": "San Pedro",
+      "department": "Accounting",
+      "status": "Active"
+    },
+    {
+      "id": 3,
+      "branch": "Calamba",
+      "department": "Accounting",
+      "status": "Active"
+    },
+    {
+      "id": 4,
+      "branch": "Sta. Rosa",
+      "department": "Accounting",
+      "status": "Active"
+    },
+    {
+      "id": 5,
+      "branch": "Treasury",
+      "department": "Treasury",
+      "status": "Active"
+    },
+    {
+      "id": 6,
+      "branch": "Billing",
+      "department": "Billing",
+      "status": "Active"
+    },
+    {
+      "id": 7,
+      "branch": "Engineering",
+      "department": "Engineering",
+      "status": "Active"
+    }
+  ],
+  "records": [
+    {
+      "id": 1,
+      "department": "Accounting",
+      "service": "Document Processing",
+      "company": "Balibago Waterworks Systems, Inc.",
+      "branch": "Main Office",
+      "date": "2026-05-12",
+      "preGroom": 128,
+      "postGroom": 110,
+      "scannedPdf": 116,
+      "scannedPages": 2240,
+      "indexedPdf": 102,
+      "indexedPages": 1988,
+      "qaIndexed": 96,
+      "qaPages": 1850,
+      "category": "Accounting Batch",
+      "status": "Approved",
+      "user": "Aldrin",
+      "remarks": "Completed accounting document batch."
+    },
+    {
+      "id": 2,
+      "department": "Accounting",
+      "service": "Document Processing",
+      "company": "Balibago Waterworks Systems, Inc.",
+      "branch": "San Pedro",
+      "date": "2026-05-12",
+      "preGroom": 88,
+      "postGroom": 81,
+      "scannedPdf": 74,
+      "scannedPages": 1395,
+      "indexedPdf": 68,
+      "indexedPages": 1280,
+      "qaIndexed": 61,
+      "qaPages": 1192,
+      "category": "Accounting Batch",
+      "status": "For Review",
+      "user": "A-Core Encoder",
+      "remarks": "Pending supervisor validation."
+    },
+    {
+      "id": 3,
+      "department": "Treasury",
+      "service": "Indexing Only",
+      "company": "Balibago Waterworks Systems, Inc.",
+      "branch": "Treasury",
+      "date": "2026-05-12",
+      "preGroom": 0,
+      "postGroom": 0,
+      "scannedPdf": 0,
+      "scannedPages": 0,
+      "indexedPdf": 143,
+      "indexedPages": 0,
+      "qaIndexed": 132,
+      "qaPages": 0,
+      "category": "Collection",
+      "status": "Approved",
+      "user": "A-Core Encoder",
+      "remarks": "Collection documents indexed."
+    },
+    {
+      "id": 4,
+      "department": "Treasury",
+      "service": "Indexing Only",
+      "company": "Balibago Waterworks Systems, Inc.",
+      "branch": "Treasury",
+      "date": "2026-05-11",
+      "preGroom": 0,
+      "postGroom": 0,
+      "scannedPdf": 0,
+      "scannedPages": 0,
+      "indexedPdf": 97,
+      "indexedPages": 0,
+      "qaIndexed": 91,
+      "qaPages": 0,
+      "category": "Disbursement",
+      "status": "Returned",
+      "user": "Aldrin",
+      "remarks": "Needs category checking."
+    }
+  ],
+  "transmittals": [
+    {
+      "id": 101,
+      "batchNo": "BART-TR-0001",
+      "department": "Accounting",
+      "branch": "Main Office",
+      "date": "2026-05-12",
+      "documents": 116,
+      "receivedBy": "Accounting Receiver",
+      "status": "Released",
+      "remarks": "Initial completed accounting batch."
+    }
+  ],
+  "logs": [
+    {
+      "id": 1778643355750,
+      "createdAt": "2026-05-13T03:35:55.228Z",
+      "user": "System",
+      "module": "System",
+      "action": "Reset Data",
+      "description": "System reset the system demo data."
+    },
+    {
+      "id": 1,
+      "createdAt": "2026-05-12T08:00:00.000Z",
+      "user": "System",
+      "module": "System",
+      "action": "Initialize",
+      "description": "B.A.R.T. A-Core demo database initialized."
+    }
+  ]
+}

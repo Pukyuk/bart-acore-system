@@ -1,0 +1,32 @@
+{
+  "name": "bart-acore-system",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "server": "node server/server.js",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "latest",
+    "@vitejs/plugin-react": "latest",
+    "better-sqlite3": "^12.10.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "lucide-react": "latest",
+    "pg": "^8.20.0",
+    "react": "latest",
+    "react-dom": "latest",
+    "recharts": "^3.8.1",
+    "tailwindcss": "latest",
+    "vite": "latest"
+  },
+  "description": "This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.",
+  "main": "eslint.config.js",
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

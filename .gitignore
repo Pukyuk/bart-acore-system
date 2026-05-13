@@ -1,0 +1,12 @@
+node_modules
+dist
+.env
+.env.local
+server/bart-acore.db
+server/bart-acore.db-shm
+server/bart-acore.db-wal
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+.DS_Store
