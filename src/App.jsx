@@ -48,6 +48,7 @@ import {
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api'
 const SESSION_KEY = 'bart_acore_session'
+const TOKEN_KEY = 'bart_acore_token'
 
 const allNavigation = [
   { id: 'dashboard', label: 'Processing Dashboard', icon: LayoutDashboard, roles: ['Admin', 'Supervisor', 'Encoder', 'Viewer'] },
@@ -88,9 +89,12 @@ function numberFormat(value) {
 }
 
 async function apiRequest(path, options = {}) {
+  const token = localStorage.getItem(TOKEN_KEY)
+
   const response = await fetch(`${API_URL}${path}`, {
     headers: {
       'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options.headers || {}),
     },
     ...options,
@@ -98,6 +102,12 @@ async function apiRequest(path, options = {}) {
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ message: 'API request failed' }))
+
+    if (response.status === 401) {
+      localStorage.removeItem(SESSION_KEY)
+      localStorage.removeItem(TOKEN_KEY)
+    }
+
     throw new Error(error.message || 'API request failed')
   }
 
@@ -148,6 +158,7 @@ function LoginPage({ onLogin }) {
         body: JSON.stringify({ email, password }),
       })
       localStorage.setItem(SESSION_KEY, JSON.stringify(data.user))
+      localStorage.setItem(TOKEN_KEY, data.token)
       onLogin(data.user)
     } catch (error) {
       setError(error.message)
@@ -1436,11 +1447,12 @@ function App() {
     }
   }
 
-  const logout = () => {
-    localStorage.removeItem(SESSION_KEY)
-    setUser(null)
-    setActivePage('dashboard')
-  }
+      const logout = () => {
+        localStorage.removeItem(SESSION_KEY)
+        localStorage.removeItem(TOKEN_KEY)
+        setUser(null)
+        setActivePage('dashboard')
+      }
 
   if (!user) return <LoginPage onLogin={setUser} />
 

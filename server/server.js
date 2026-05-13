@@ -2,6 +2,8 @@ import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
 import pg from 'pg'
+import bcrypt from 'bcryptjs'
+import jwt from 'jsonwebtoken'
 
 const { Pool } = pg
 
@@ -10,6 +12,11 @@ const PORT = process.env.PORT || 4000
 
 if (!process.env.DATABASE_URL) {
   console.error('Missing DATABASE_URL in .env file.')
+  process.exit(1)
+}
+
+if (!process.env.JWT_SECRET) {
+  console.error('Missing JWT_SECRET in .env file.')
   process.exit(1)
 }
 
@@ -23,7 +30,31 @@ const pool = new Pool({
         },
 })
 
-app.use(cors())
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:4173',
+  process.env.FRONTEND_URL,
+].filter(Boolean)
+
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin) return callback(null, true)
+
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true)
+      }
+
+      if (origin.endsWith('.vercel.app')) {
+        return callback(null, true)
+      }
+
+      return callback(null, true)
+    },
+    credentials: true,
+  })
+)
+
 app.use(express.json())
 
 function createId() {
@@ -35,7 +66,48 @@ function toNumber(value) {
 }
 
 function getActionUser(req) {
-  return req.body?.actionUser || req.body?.user || 'System'
+  return req.authUser?.name || req.body?.actionUser || req.body?.user || 'System'
+}
+
+function createToken(user) {
+  return jwt.sign(
+    {
+      id: Number(user.id),
+      email: user.email,
+      role: user.role,
+      name: user.name,
+    },
+    process.env.JWT_SECRET,
+    {
+      expiresIn: '8h',
+    }
+  )
+}
+
+function authRequired(req, res, next) {
+  const authHeader = req.headers.authorization || ''
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : ''
+
+  if (!token) {
+    return res.status(401).json({ message: 'Unauthorized. Missing login token.' })
+  }
+
+  try {
+    req.authUser = jwt.verify(token, process.env.JWT_SECRET)
+    next()
+  } catch {
+    return res.status(401).json({ message: 'Unauthorized. Invalid or expired token.' })
+  }
+}
+
+function requireRoles(...roles) {
+  return (req, res, next) => {
+    if (!roles.includes(req.authUser?.role)) {
+      return res.status(403).json({ message: 'Access denied for this role.' })
+    }
+
+    next()
+  }
 }
 
 function sanitizeUser(user) {
@@ -107,6 +179,13 @@ function mapLog(row) {
   }
 }
 
+async function ensureSecurityColumns() {
+  await pool.query(`
+    ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS password_hash TEXT
+  `)
+}
+
 async function addLog({
   user = 'System',
   module = 'System',
@@ -154,6 +233,16 @@ async function getAllData() {
   }
 }
 
+app.get('/', (req, res) => {
+  res.json({
+    status: 'online',
+    app: 'B.A.R.T. A-Core API',
+    company: 'Balibago Waterworks Systems, Inc.',
+    team: 'A-Core',
+    message: 'Backend API is running. Use /api/health or /api/data.',
+  })
+})
+
 app.get('/api/health', async (req, res) => {
   try {
     const result = await pool.query('SELECT NOW() AS server_time')
@@ -180,11 +269,12 @@ app.post('/api/login', async (req, res) => {
 
     const result = await pool.query(
       `
-        SELECT * FROM users
-        WHERE lower(email) = $1 AND password = $2
+        SELECT *
+        FROM users
+        WHERE lower(email) = $1
         LIMIT 1
       `,
-      [email, password]
+      [email]
     )
 
     const user = result.rows[0]
@@ -197,6 +287,35 @@ app.post('/api/login', async (req, res) => {
       return res.status(403).json({ message: 'This account is inactive.' })
     }
 
+    let passwordIsValid = false
+
+    if (user.password_hash) {
+      passwordIsValid = await bcrypt.compare(password, user.password_hash)
+    } else {
+      passwordIsValid = password === user.password
+    }
+
+    if (!passwordIsValid) {
+      return res.status(401).json({ message: 'Invalid email or password.' })
+    }
+
+    if (!user.password_hash) {
+      const passwordHash = await bcrypt.hash(password, 12)
+
+      await pool.query(
+        `
+          UPDATE users
+          SET password_hash = $1,
+              password = 'HASHED'
+          WHERE id = $2
+        `,
+        [passwordHash, user.id]
+      )
+
+      user.password_hash = passwordHash
+      user.password = 'HASHED'
+    }
+
     await addLog({
       user: user.name,
       module: 'Auth',
@@ -206,6 +325,7 @@ app.post('/api/login', async (req, res) => {
 
     res.json({
       message: 'Login successful.',
+      token: createToken(user),
       user: sanitizeUser(user),
     })
   } catch (error) {
@@ -213,7 +333,7 @@ app.post('/api/login', async (req, res) => {
   }
 })
 
-app.get('/api/data', async (req, res) => {
+app.get('/api/data', authRequired, async (req, res) => {
   try {
     res.json(await getAllData())
   } catch (error) {
@@ -221,7 +341,7 @@ app.get('/api/data', async (req, res) => {
   }
 })
 
-app.get('/api/logs', async (req, res) => {
+app.get('/api/logs', authRequired, requireRoles('Admin', 'Supervisor'), async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM logs ORDER BY created_at DESC, id DESC')
     res.json(result.rows.map(mapLog))
@@ -230,7 +350,7 @@ app.get('/api/logs', async (req, res) => {
   }
 })
 
-app.post('/api/logs/clear', async (req, res) => {
+app.post('/api/logs/clear', authRequired, requireRoles('Admin'), async (req, res) => {
   try {
     const actionUser = getActionUser(req)
 
@@ -254,7 +374,7 @@ app.post('/api/logs/clear', async (req, res) => {
   }
 })
 
-app.get('/api/users', async (req, res) => {
+app.get('/api/users', authRequired, requireRoles('Admin'), async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM users ORDER BY id DESC')
     res.json(result.rows.map(sanitizeUser))
@@ -263,7 +383,7 @@ app.get('/api/users', async (req, res) => {
   }
 })
 
-app.post('/api/users', async (req, res) => {
+app.post('/api/users', authRequired, requireRoles('Admin'), async (req, res) => {
   try {
     const actionUser = getActionUser(req)
     const email = String(req.body.email || '').trim().toLowerCase()
@@ -281,22 +401,34 @@ app.post('/api/users', async (req, res) => {
       return res.status(409).json({ message: 'Email already exists.' })
     }
 
+    const plainPassword = req.body.password || 'password123'
+    const passwordHash = await bcrypt.hash(plainPassword, 12)
+
     const user = {
       id: createId(),
       name: req.body.name || 'New User',
       email,
-      password: req.body.password || 'password123',
+      password: 'HASHED',
+      passwordHash,
       role: req.body.role || 'Encoder',
       status: req.body.status || 'Active',
     }
 
     const result = await pool.query(
       `
-        INSERT INTO users (id, name, email, password, role, status)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO users (id, name, email, password, password_hash, role, status)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING *
       `,
-      [user.id, user.name, user.email, user.password, user.role, user.status]
+      [
+        user.id,
+        user.name,
+        user.email,
+        user.password,
+        user.passwordHash,
+        user.role,
+        user.status,
+      ]
     )
 
     await addLog({
@@ -312,7 +444,7 @@ app.post('/api/users', async (req, res) => {
   }
 })
 
-app.patch('/api/users/:id', async (req, res) => {
+app.patch('/api/users/:id', authRequired, requireRoles('Admin'), async (req, res) => {
   try {
     const id = Number(req.params.id)
     const actionUser = getActionUser(req)
@@ -324,10 +456,19 @@ app.patch('/api/users/:id', async (req, res) => {
       return res.status(404).json({ message: 'User not found.' })
     }
 
+    let nextPassword = existing.password
+    let nextPasswordHash = existing.password_hash
+
+    if (req.body.password) {
+      nextPassword = 'HASHED'
+      nextPasswordHash = await bcrypt.hash(String(req.body.password), 12)
+    }
+
     const updated = {
       name: req.body.name ?? existing.name,
       email: req.body.email ? String(req.body.email).trim().toLowerCase() : existing.email,
-      password: req.body.password || existing.password,
+      password: nextPassword,
+      passwordHash: nextPasswordHash,
       role: req.body.role ?? existing.role,
       status: req.body.status ?? existing.status,
     }
@@ -347,12 +488,21 @@ app.patch('/api/users/:id', async (req, res) => {
         SET name = $1,
             email = $2,
             password = $3,
-            role = $4,
-            status = $5
-        WHERE id = $6
+            password_hash = $4,
+            role = $5,
+            status = $6
+        WHERE id = $7
         RETURNING *
       `,
-      [updated.name, updated.email, updated.password, updated.role, updated.status, id]
+      [
+        updated.name,
+        updated.email,
+        updated.password,
+        updated.passwordHash,
+        updated.role,
+        updated.status,
+        id,
+      ]
     )
 
     await addLog({
@@ -368,7 +518,7 @@ app.patch('/api/users/:id', async (req, res) => {
   }
 })
 
-app.delete('/api/users/:id', async (req, res) => {
+app.delete('/api/users/:id', authRequired, requireRoles('Admin'), async (req, res) => {
   try {
     const id = Number(req.params.id)
     const actionUser = getActionUser(req)
@@ -395,7 +545,7 @@ app.delete('/api/users/:id', async (req, res) => {
   }
 })
 
-app.get('/api/branches', async (req, res) => {
+app.get('/api/branches', authRequired, async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM branches ORDER BY id DESC')
     res.json(result.rows.map(mapBranch))
@@ -404,7 +554,7 @@ app.get('/api/branches', async (req, res) => {
   }
 })
 
-app.post('/api/branches', async (req, res) => {
+app.post('/api/branches', authRequired, requireRoles('Admin', 'Supervisor'), async (req, res) => {
   try {
     const actionUser = getActionUser(req)
     const branchName = String(req.body.branch || '').trim()
@@ -451,7 +601,7 @@ app.post('/api/branches', async (req, res) => {
   }
 })
 
-app.patch('/api/branches/:id', async (req, res) => {
+app.patch('/api/branches/:id', authRequired, requireRoles('Admin', 'Supervisor'), async (req, res) => {
   try {
     const id = Number(req.params.id)
     const actionUser = getActionUser(req)
@@ -503,7 +653,7 @@ app.patch('/api/branches/:id', async (req, res) => {
   }
 })
 
-app.delete('/api/branches/:id', async (req, res) => {
+app.delete('/api/branches/:id', authRequired, requireRoles('Admin', 'Supervisor'), async (req, res) => {
   try {
     const id = Number(req.params.id)
     const actionUser = getActionUser(req)
@@ -530,7 +680,7 @@ app.delete('/api/branches/:id', async (req, res) => {
   }
 })
 
-app.get('/api/records', async (req, res) => {
+app.get('/api/records', authRequired, async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM records ORDER BY id DESC')
     res.json(result.rows.map(mapRecord))
@@ -539,7 +689,7 @@ app.get('/api/records', async (req, res) => {
   }
 })
 
-app.post('/api/records', async (req, res) => {
+app.post('/api/records', authRequired, requireRoles('Admin', 'Supervisor', 'Encoder'), async (req, res) => {
   try {
     const actionUser = getActionUser(req)
 
@@ -615,7 +765,7 @@ app.post('/api/records', async (req, res) => {
   }
 })
 
-app.patch('/api/records/:id', async (req, res) => {
+app.patch('/api/records/:id', authRequired, requireRoles('Admin', 'Supervisor', 'Encoder'), async (req, res) => {
   try {
     const id = Number(req.params.id)
     const actionUser = getActionUser(req)
@@ -705,7 +855,7 @@ app.patch('/api/records/:id', async (req, res) => {
   }
 })
 
-app.delete('/api/records/:id', async (req, res) => {
+app.delete('/api/records/:id', authRequired, requireRoles('Admin', 'Supervisor'), async (req, res) => {
   try {
     const id = Number(req.params.id)
     const actionUser = getActionUser(req)
@@ -732,7 +882,7 @@ app.delete('/api/records/:id', async (req, res) => {
   }
 })
 
-app.get('/api/transmittals', async (req, res) => {
+app.get('/api/transmittals', authRequired, async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM transmittals ORDER BY id DESC')
     res.json(result.rows.map(mapTransmittal))
@@ -741,7 +891,7 @@ app.get('/api/transmittals', async (req, res) => {
   }
 })
 
-app.post('/api/transmittals', async (req, res) => {
+app.post('/api/transmittals', authRequired, requireRoles('Admin', 'Supervisor', 'Encoder'), async (req, res) => {
   try {
     const actionUser = getActionUser(req)
 
@@ -803,7 +953,7 @@ app.post('/api/transmittals', async (req, res) => {
   }
 })
 
-app.patch('/api/transmittals/:id', async (req, res) => {
+app.patch('/api/transmittals/:id', authRequired, requireRoles('Admin', 'Supervisor', 'Encoder'), async (req, res) => {
   try {
     const id = Number(req.params.id)
     const actionUser = getActionUser(req)
@@ -875,7 +1025,7 @@ app.patch('/api/transmittals/:id', async (req, res) => {
   }
 })
 
-app.delete('/api/transmittals/:id', async (req, res) => {
+app.delete('/api/transmittals/:id', authRequired, requireRoles('Admin', 'Supervisor'), async (req, res) => {
   try {
     const id = Number(req.params.id)
     const actionUser = getActionUser(req)
@@ -902,11 +1052,16 @@ app.delete('/api/transmittals/:id', async (req, res) => {
   }
 })
 
-app.post('/api/reset', async (req, res) => {
+app.post('/api/reset', authRequired, requireRoles('Admin'), async (req, res) => {
   const client = await pool.connect()
 
   try {
     const actionUser = getActionUser(req)
+
+    const adminHash = await bcrypt.hash('admin123', 12)
+    const encoderHash = await bcrypt.hash('encoder123', 12)
+    const supervisorHash = await bcrypt.hash('supervisor123', 12)
+    const viewerHash = await bcrypt.hash('viewer123', 12)
 
     await client.query('BEGIN')
 
@@ -916,14 +1071,17 @@ app.post('/api/reset', async (req, res) => {
     await client.query('DELETE FROM transmittals')
     await client.query('DELETE FROM logs')
 
-    await client.query(`
-      INSERT INTO users (id, name, email, password, role, status)
-      VALUES
-        (1, 'Aldrin', 'admin@bwsi.com', 'admin123', 'Admin', 'Active'),
-        (2, 'A-Core Encoder', 'encoder@bwsi.com', 'encoder123', 'Encoder', 'Active'),
-        (3, 'A-Core Supervisor', 'supervisor@bwsi.com', 'supervisor123', 'Supervisor', 'Active'),
-        (4, 'BART Viewer', 'viewer@bwsi.com', 'viewer123', 'Viewer', 'Active')
-    `)
+    await client.query(
+      `
+        INSERT INTO users (id, name, email, password, password_hash, role, status)
+        VALUES
+          (1, 'Aldrin', 'admin@bwsi.com', 'HASHED', $1, 'Admin', 'Active'),
+          (2, 'A-Core Encoder', 'encoder@bwsi.com', 'HASHED', $2, 'Encoder', 'Active'),
+          (3, 'A-Core Supervisor', 'supervisor@bwsi.com', 'HASHED', $3, 'Supervisor', 'Active'),
+          (4, 'BART Viewer', 'viewer@bwsi.com', 'HASHED', $4, 'Viewer', 'Active')
+      `,
+      [adminHash, encoderHash, supervisorHash, viewerHash]
+    )
 
     await client.query(`
       INSERT INTO branches (id, branch, department, status)
@@ -988,6 +1146,17 @@ app.use((req, res) => {
   })
 })
 
-app.listen(PORT, () => {
-  console.log(`B.A.R.T. A-Core PostgreSQL API running at http://localhost:${PORT}`)
-})
+async function startServer() {
+  try {
+    await ensureSecurityColumns()
+
+    app.listen(PORT, () => {
+      console.log(`B.A.R.T. A-Core PostgreSQL API running at http://localhost:${PORT}`)
+    })
+  } catch (error) {
+    console.error('Failed to start server:', error.message)
+    process.exit(1)
+  }
+}
+
+startServer()
